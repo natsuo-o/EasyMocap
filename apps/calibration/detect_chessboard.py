@@ -6,11 +6,14 @@
   @ FilePath: /EasyMocapPublic/apps/calibration/detect_chessboard.py
 '''
 # detect the corner of chessboard
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)))
 from easymocap.annotator.file_utils import getFileList, read_json, save_json
 from easymocap.mytools.debug_utils import mywarn
 from tqdm import tqdm
 from easymocap.annotator import ImageFolder
-from easymocap.annotator.chessboard import findChessboardCorners
+from easymocap.annotator.chessboard import findChessboardCorners, findCharucoboardCorners
 import numpy as np
 from os.path import join
 import cv2
@@ -38,6 +41,7 @@ def getChessboard3d(pattern, gridSize, axis='yx'):
 def create_chessboard(path, image, pattern, gridSize, ext, overwrite=True):
     print('Create chessboard {}'.format(pattern))
     keypoints3d = getChessboard3d(pattern, gridSize=gridSize, axis=args.axis)
+    print(keypoints3d.shape)
     keypoints2d = np.zeros((keypoints3d.shape[0], 3))
     imgnames = getFileList(join(path, image), ext=ext)
     template = {
@@ -47,34 +51,60 @@ def create_chessboard(path, image, pattern, gridSize, ext, overwrite=True):
         'grid_size': gridSize,
         'visited': False
     }
+
     for imgname in tqdm(imgnames, desc='create template chessboard'):
         annname = imgname.replace(ext, '.json')
         annname = join(path, 'chessboard', annname)
         if os.path.exists(annname) and overwrite:
             # 覆盖keypoints3d
-            data = read_json(annname)
-            data['keypoints3d'] = template['keypoints3d']
-            save_json(annname, data)
+            #data = read_json(annname)
+            #data['keypoints3d'] = template['keypoints3d']
+            save_json(annname, template)
         elif os.path.exists(annname) and not overwrite:
             continue
         else:
             save_json(annname, template)
 
-def _detect_chessboard(datas, path, image, out, pattern):
+def _detect_chessboard(datas, path, image, out, pattern, use_charuco):
     for imgname, annotname in datas:
         # imgname, annotname = dataset[i]
         # detect the 2d chessboard
+        imgname = '/workspace/data/kandao/KD_20240731_193042_MP4/convert_center_cam/dataset_for_4k4d/images/cam01/Screenshot-2019-06-25-at-11.58.43.png'
         img = cv2.imread(imgname)
+        width = img.shape[1]
+        height = img.shape[0]
+
+        img = cv2.resize(img, None, fx=2, fy=2)
+        kernel = np.ones((3,3),np.uint8)
+        img = cv2.erode(img,kernel,iterations = 1)
+        img = cv2.resize(img, (width, height))
+
+
         annots = read_json(annotname)
-        try:
-            show = findChessboardCorners(img, annots, pattern)
-        except func_timeout.exceptions.FunctionTimedOut:
-            show = None
-        save_json(annotname, annots)
-        if show is None:
-            mywarn('[Info] Cannot find chessboard in {}'.format(imgname))
-            continue
+        if use_charuco:
+            try:
+                show = findCharucoboardCorners(img, annots, pattern)
+            except:
+                show = None
+            save_json(annotname, annots)
+            if show is None:
+                mywarn('[Info] Cannot find charuco in {}'.format(imgname))
+                continue
+        else:
+            try:
+                show = findChessboardCorners(img, annots, pattern)
+            except func_timeout.exceptions.FunctionTimedOut:
+                show = None
+            save_json(annotname, annots)
+            if show is None:
+                mywarn('[Info] Cannot find chessboard in {}'.format(imgname))
+                continue
+        print(out)
+        print(imgname)
+        print(image)
+        print(imgname.replace(path + '/{}/'.format(image), ''))
         outname = join(out, imgname.replace(path + '/{}/'.format(image), ''))
+        print(outname)
         os.makedirs(os.path.dirname(outname), exist_ok=True)
         if isinstance(show, np.ndarray):
             cv2.imwrite(outname, show)
@@ -88,7 +118,7 @@ def detect_chessboard(path, image, out, pattern, gridSize, args):
     for i in range(args.mp):
         ranges = trange[i::args.mp]
         datas = [dataset[t] for t in ranges]
-        thread = threading.Thread(target=_detect_chessboard, args=(datas, path, image, out, pattern)) # 应该不存在任何数据竞争
+        thread = threading.Thread(target=_detect_chessboard, args=(datas, path, image, out, pattern, args.use_charuco)) # 应该不存在任何数据竞争
         thread.start()
         threads.append(thread)
     for thread in threads:
@@ -205,6 +235,7 @@ if __name__ == "__main__":
     parser.add_argument('--overwrite3d', action='store_true')
     parser.add_argument('--seq', action='store_true')
     parser.add_argument('--check', action='store_true')
+    parser.add_argument('--use_charuco', action='store_true', default=False)
 
     args = parser.parse_args()
     if args.seq:

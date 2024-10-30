@@ -8,6 +8,7 @@
 import numpy as np
 import cv2
 from func_timeout import func_set_timeout
+from cv2 import aruco
 
 def getChessboard3d(pattern, gridSize, axis='xy'):
     object_points = np.zeros((pattern[1]*pattern[0], 3), np.float32)
@@ -43,6 +44,7 @@ def _findChessboardCorners(img, pattern, debug):
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
     retval, corners = cv2.findChessboardCorners(img, pattern, 
         flags=cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_FAST_CHECK + cv2.CALIB_CB_FILTER_QUADS)
+    print(corners)
     if not retval:
         return False, None
     corners = cv2.cornerSubPix(img, corners, (11, 11), (-1, -1), criteria)
@@ -55,6 +57,17 @@ def _findChessboardCornersAdapt(img, pattern, debug):
                 cv2.THRESH_BINARY, 21, 2)
     return _findChessboardCorners(img, pattern, debug)
 
+def _findCharucoboardCorners(img, pattern, debug):
+    dictionary = aruco.getPredefinedDictionary(aruco.DICT_6X6_250)
+    
+    board = aruco.CharucoBoard(pattern, 0.04, 0.02, dictionary)
+    params = aruco.DetectorParameters()
+    detector = aruco.CharucoDetector(board, detectorParams=params)
+
+    ch_corners, ch_ids, mk_corners, mk_ids = detector.detectBoard(img)
+    return ch_corners, ch_ids, mk_corners, mk_ids
+
+
 @func_set_timeout(5)
 def findChessboardCorners(img, annots, pattern, debug=False):
     conf = sum([v[2] for v in annots['keypoints2d']])
@@ -62,7 +75,7 @@ def findChessboardCorners(img, annots, pattern, debug=False):
         return True
     elif annots['visited']:
         return None
-    annots['visited'] = True
+    #annots['visited'] = True
     gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
     # Find the chess board corners
     for func in [_findChessboardCorners, _findChessboardCornersAdapt]:
@@ -72,11 +85,39 @@ def findChessboardCorners(img, annots, pattern, debug=False):
         return None
     # found the corners
     show = img.copy()
+    print(corners.shape[0], len(annots['keypoints2d']))
     show = cv2.drawChessboardCorners(show, pattern, corners, ret)
     assert corners.shape[0] == len(annots['keypoints2d'])
     corners = np.hstack((corners, np.ones((corners.shape[0], 1))))
     annots['keypoints2d'] = corners.tolist()
     return show
+
+
+def findCharucoboardCorners(img, annots, pattern, debug=False):
+    conf = sum([v[2] for v in annots['keypoints2d']])
+    if annots['visited'] and conf > 0:
+        return True
+    elif annots['visited']:
+        return None
+    # annots['visited'] = True
+    # Find the chess board corners
+    print('yyyyyyyyyyyy')
+    ch_corners, ch_ids, mk_corners, mk_ids = _findCharucoboardCorners(img, pattern, debug)
+    print('xxxxxxxxxxxxx')
+    print(ch_corners)
+    # 検出されたコーナーの数を検証
+    if ch_corners is not None and len(ch_corners) > 0:
+        print(f"Charuco corners detected: {len(ch_corners)}")
+        return None
+    # found the corners
+    show = img.copy()
+    # (0,255,0)はコーナーに描画する色を指す
+    show = aruco.drawDetectedCornersCharuco(image, charuco_corners, charuco_ids, (0, 255, 0))
+    assert corners.shape[0] == len(annots['keypoints2d'])
+    corners = np.hstack((corners, np.ones((corners.shape[0], 1))))
+    annots['keypoints2d'] = corners.tolist()
+    return show
+
 
 def create_chessboard(path, keypoints3d, out='annots'):
     from tqdm import tqdm

@@ -5,6 +5,10 @@
   @ LastEditTime: 2022-09-26 20:13:53
   @ FilePath: /EasyMocapPublic/apps/annotation/annot_calib.py
 '''
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir)))
+
 from easymocap.annotator.basic_visualize import plot_text, resize_to_screen, vis_bbox, vis_line
 from easymocap.mytools.debug_utils import mywarn
 from easymocap.mytools.vis_base import plot_point

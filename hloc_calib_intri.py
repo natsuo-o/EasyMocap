@@ -23,6 +23,8 @@ from os.path import join
 from glob import glob
 from easymocap.annotator.chessboard import get_lines_chessboard
 from tqdm import tqdm
+import LLFF.llff.poses.colmap_read_model as read_model
+
 
 def read_chess(chessname):
     data = read_json(chessname)
@@ -125,41 +127,45 @@ def calib_intri_share(path, image, ext):
                 cv2.imwrite(outname, dst)
         write_intri(join(path, 'output', 'intri.yml'), cameras)
 
-def calib_intri(path, image, ext):
-    camnames = sorted(os.listdir(join(path, image)))
-    camnames = [cam for cam in camnames if os.path.isdir(join(path, image, cam))]
-    cameras = {}
-    for ic, cam in enumerate(camnames):
-        imagenames = sorted(glob(join(path, image, cam, '*'+ext)))
-        chessnames = sorted(glob(join(path, 'chessboard', cam, '*.json')))
-        k3ds_, k2ds_ = load_chessboards(chessnames, imagenames, args.num, out=join(args.path, 'output', cam+'_used'))
-        k3ds = k3ds_
-        k2ds = [np.ascontiguousarray(k2d[:, :-1]) for k2d in k2ds_]
-        gray = cv2.imread(imagenames[0], 0)
-        print('>> Camera {}: {:3d} frames'.format(cam, len(k2ds)))
-        with Timer('calibrate'):
-            ret, K, dist, rvecs, tvecs = cv2.calibrateCamera(
-                k3ds, k2ds, gray.shape[::-1], None, None,
-                flags=cv2.CALIB_FIX_K3)
-            cameras[cam] = {
-                'K': K,
-                'dist': dist  # dist: (1, 5)
-            }
-    write_intri(join(path, 'output', 'intri.yml'), cameras)
+def create_intri_matrix(params):
+    return np.array([[params[0], 0, params[2]],
+                     [0, params[1], params[3]],
+                     [0, 0, 1]])
+
+def create_intri_yml(path):
+    #camnames = sorted(os.listdir(join(path, image)))
+    #camnames = [cam for cam in camnames if os.path.isdir(join(path, image, cam))]
+    #cameras = {}
+
+
+    camerasfile = os.path.join(path, 'sparse/0/cameras.bin')
+    cameras = read_model.read_cameras_binary(camerasfile)
+    # imgdata = read_model.read_cameras_binary()
+
+    camnames = sorted(os.listdir(join(path, "dataset_for_4k4d/images_libx265")))
+
+    if len(camnames) != len(cameras):
+        assert "the len of data extri and param is not same"
+
+    
+    intri = {}
+    for cam_num, camdata in cameras.items():
+        cam = f'cam{cam_num:02}'
+        intri[cam] = {}
+        intri[cam]['K'] = create_intri_matrix(camdata.params)
+
+        intri[cam]['dist'] = np.zeros((1,5))
+    output_path = join(path, 'dataset_for_4k4d/optimized/intri.yml')
+    # extri = {"cam01":{'Rvec':[3,1], 'R':[3,3], 'T':[3,1]}}
+    write_intri(output_path, intri)
 
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('path', type=str, default='/home/')
-    parser.add_argument('--image', type=str, default='images')
-    parser.add_argument('--ext', type=str, default='.jpg', choices=['.jpg', '.png'])
-    parser.add_argument('--num', type=int, default=-1)
-    parser.add_argument('--sample', type=int, default=-1)
-    parser.add_argument('--share_intri', action='store_true')
-    parser.add_argument('--remove', action='store_true')
+    parser.add_argument('path', type=str)
+    # path /workspace/data/kandao/KD_20240731_192530_MP4/convert_center_cam/
+    parser.add_argument('--ext', type=str, default='.jpg')
+
     args = parser.parse_args()
-    if args.share_intri:
-        calib_intri_share(args.path, args.image, ext=args.ext)
-    else:
-        calib_intri(args.path, args.image, ext=args.ext)
+    create_intri_yml(args.path)

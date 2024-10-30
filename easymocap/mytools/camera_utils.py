@@ -100,6 +100,8 @@ def write_extri(extri_name, cameras):
     extri.write('names', camnames, 'list')
     for key_, val in cameras.items():
         key = key_.split('.')[0]
+        print(key_)
+        print(val)
         extri.write('R_{}'.format(key), val['Rvec'])
         extri.write('Rot_{}'.format(key), val['R'])
         extri.write('T_{}'.format(key), val['T'])
